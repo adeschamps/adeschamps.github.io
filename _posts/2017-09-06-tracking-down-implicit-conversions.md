@@ -2,7 +2,6 @@
 layout: post
 title:  "Tracking down implicit conversions in C++"
 permalink: /implicit
-draft: true
 ---
 
 In C++, a _converting constructor_ is a constructor that may be implicitly invoked
