@@ -4,18 +4,15 @@ title:  "Mutating observers in Rust"
 permalink: /observer
 ---
 
-I started this blog because I used to enjoy writing
-but I haven't had many opportunities to do so in the last few years.
-In my mind, I've set an arbitrary goal of publishing one post per month,
-but I've been busy lately, and October is drawing to an end.
-
-However, having just attended Rust Belt Rust and listened to Chris Krycho's excellent talk on becoming a contributor,
-I've decided to write this anyway, even though I'm still working through it myself.
+In this article we'll explore some variations of the observer pattern in [Rust][rust].
+We'll see an example of the language steering us away from a potentially risky design
+while at the same time giving us the flexibility to go ahead with it as long as we're explicit about what we're doing.
+Although we'll be exploring shared mutability, none of this is `unsafe` code.
 
 # The Observer Pattern
 
-The [observer pattern][observer-wiki] is basically when we ask someone else to notify us when something interesting happens.
-Usually, "notify me" means "call one of my member functions".
+The [observer pattern][observer-wiki] is basically when we ask someone else to tell us when something interesting happens.
+Usually, that means "invoke one of my member functions".
 This is easily expressible in a lot of languages,
 but there are ways to get it wrong and the Rust compiler catches some of them.
 
@@ -125,7 +122,11 @@ impl<'a> Counter<'a> {
 ```
 
 The lifetime specifier is necessary to tell the compiler that the elements of our `Vec` will live at least as long as `'a`.
-If we try to use our new function like this, then Rust won't
+This is something we must be careful about in other languages.
+If our observers didn't live as long as our counter, then we'd end up with dangling pointers.
+This can be a problem even in garbage collected languages.
+In Rust, our program will only compile if we initialize the observer _before_ the counter,
+so that it gets destroyed _after_ the counter:
 
 ```rust
 struct Foo;
@@ -142,9 +143,9 @@ fn main() {
 }
 ```
 
-In the example above, it is important that the observer be initialized before the counter.
-Otherwise, the compiler will stop us because the counter is still holding a reference to the observer when the observer goes out of scope.
-At the risk of going too far on a tangent, this is where one could use reference counted pointers like [`Rc`][Rc].
+If we declared the observer and counter in the opposite order,
+then the the compiler will stop us because the counter is still holding a reference to the observer when the observer goes out of scope.
+At the risk of going too far on a tangent, this is a place where one could use reference counted pointers like [`Rc`][Rc].
 
 Since this example uses non-mutable references, we can safely register our observer with as many counters as we want:
 
@@ -154,12 +155,15 @@ fn main() {
 
     let mut counter_1 = Counter::new();
     let mut counter_2 = Counter::new();
+    let mut counter_3 = Counter::new();
 
     counter_1.register(&observer);
     counter_2.register(&observer);
+    counter_3.register(&observer);
 
     counter_1.run();
     counter_2.run();
+    counter_3.run();
 }
 ```
 
@@ -179,6 +183,7 @@ In this case, it's called [`RefCell`][RefCell].
 It provides _interior mutability_ - while the compiler treats the `RefCell` itself as immutable,
 it can be used to obtain both immutable and mutable references using functions
 such as [`borrow`][RefCell::borrow] and [`borrow_mut`][RefCell::borrow_mut].
+In this way, it's similar to a read-write lock, but single threaded.
 
 __Be careful!__
 Rather than getting a compiler error when we make a mistake, those functions will panic instead.
@@ -209,6 +214,9 @@ impl<'a> Counter<'a> {
 }
 ```
 
+Now we can register an observer with multiple sources,
+and still mutate it when its `notify` callback is invoked.
+
 # Do we really want this?
 
 `RefCell` should not be the first tool we reach for.
@@ -226,8 +234,8 @@ The library allows us to register callbacks for various events.
 While I know that the callbacks will be invoked in a thread safe way,
 the Rust compiler can't prove that.
 This is a case where it's okay to have multiple mutable references to the same memory.
-We just have to be sure that they won't be used incorrectly,
-or we can use the `RefCell::try_` variants if we can't be sure.
+We just have to be sure that they won't be used incorrectly.
+
 
 
 
@@ -236,6 +244,7 @@ or we can use the `RefCell::try_` variants if we can't be sure.
 
 [Box]: https://doc.rust-lang.org/std/boxed/struct.Box.html
 [Rc]: https://doc.rust-lang.org/std/rc/struct.Rc.html
+[RefCell]: https://doc.rust-lang.org/std/cell/struct.RefCell.html
 [RefCell::borrow]: https://doc.rust-lang.org/std/cell/struct.RefCell.html#method.borrow
 [RefCell::borrow_mut]: https://doc.rust-lang.org/std/cell/struct.RefCell.html#method.borrow_mut
 [RefCell::try_borrow]: https://doc.rust-lang.org/std/cell/struct.RefCell.html#method.try_borrow
@@ -245,3 +254,4 @@ or we can use the `RefCell::try_` variants if we can't be sure.
 [mpsc]: https://doc.rust-lang.org/std/sync/mpsc/fn.channel.html
 [observer-rust]: https://z0ltan.wordpress.com/2017/06/23/the-observer-pattern-in-rust/
 [observer-wiki]: https://en.wikipedia.org/wiki/Observer_pattern
+[rust]: https://www.rust-lang.org/en-US/
